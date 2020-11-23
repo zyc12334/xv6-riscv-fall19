@@ -5,6 +5,7 @@
 #define MAXARGS 64
 
 struct cmd{
+  //这里使用了头尾两个指针。当然也可以改成头指针+长度的形式
   char *infile;
   char *einfile;
   char *outfile;
@@ -13,11 +14,12 @@ struct cmd{
   char *eargv[MAXARGS];
 };
 
+//只有需要管道时需要两条指令信息，其余情况只需要一条，可以取巧使用静态全局变量保存。
 static struct cmd lcmd;
 static struct cmd rcmd;
 
 
-char whitespace[] = " \t\r\n\v";
+char whitespace[] = " \n\t\r\v";
 char symbols[] = "<|>";
 
 void panic(char *s){
@@ -28,7 +30,7 @@ void panic(char *s){
 int getcmd(char *buf, int nbuf){
   fprintf(2, "@ ");
   memset(buf, 0 , nbuf);
-  gets(buf, nbuf);
+  gets(buf, nbuf); //虽然很不想用gets但是你看看别人sh都写的gets
   if(buf[0] == 0){
     return -1;
   }
@@ -37,6 +39,7 @@ int getcmd(char *buf, int nbuf){
 
 
 int peek(char **ps, char *es, char *toks){
+  //超前对比一个字符，方便进行指令的判断
   char *s;
   s = *ps;
   while(s < es && strchr(whitespace, *s)){
@@ -47,8 +50,11 @@ int peek(char **ps, char *es, char *toks){
 }
 
 int gettoken(char **ps, char *es, char **q, char **eq){
+  //获取第一个token,可以是指令或参数。
+  //ps为指向“指向读取头的指针”的指针，es为读取尾的指针
+  //q与eq则指向指令的头与尾
   char *s;
-  int ret;
+  char ret;
   s = *ps;
   while(s < es && strchr(whitespace, *s)){
     s++;
@@ -103,6 +109,7 @@ void parser(char **ps, char *es, struct cmd *cmd){
     if(argc >= MAXARGS){
       panic("too many arguments.");
     }
+    //当需要重定向时的处理
     while(peek(ps, es, "<>")){
       tok = gettoken(ps, es, 0, 0);
       if(gettoken(ps, es, &q, &eq) != 'a'){
@@ -126,7 +133,7 @@ void parser(char **ps, char *es, struct cmd *cmd){
 
 void parsecmd(char *s){
   char *es;
-  es = s+ strlen(s);
+  es = s + strlen(s);
   parser(&s, es, &lcmd);
   if(peek(&s, es, "|")){
     gettoken(&s, es, 0, 0);
@@ -156,6 +163,7 @@ void redire(struct cmd *cmd){
 void execcmd(void){
   int pd[2], i;
   if(rcmd.argv[0] != 0){
+    //需要使用管道时的处理。
     if(pipe(pd) < 0){
       panic("pipe failed.");
     }
@@ -171,8 +179,8 @@ void execcmd(void){
       for(i = 0; lcmd.argv[i]; i++){
         *lcmd.eargv[i] = 0;
       }
-    exec(lcmd.argv[0], lcmd.argv);
-    fprintf(2, "exec %s failed\n", lcmd.argv[0]);
+      exec(lcmd.argv[0], lcmd.argv);
+      fprintf(2, "exec %s failed\n", lcmd.argv[0]);
     }
     if(fork() == 0){
       close(0);
