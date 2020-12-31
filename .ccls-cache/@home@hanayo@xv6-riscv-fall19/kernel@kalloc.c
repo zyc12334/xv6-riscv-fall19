@@ -21,17 +21,18 @@ struct run {
 struct {
   struct spinlock lock;
   struct run *freelist;
-  uint *ref_count;
+  char *page_start;
+  uint8 *ref_count;
 } kmem;
 
 void
 kinit()
 {
   initlock(&kmem.lock, "kmem");
-  kmem.ref_count = (uint*)end;
-  uint64 rc_pages = ((((PHYSTOP - (uint64)end) >> 12) + 1) * sizeof(uint) >> 12) + 1;
-  uint64 rc_offset = (uint64)rc_pages << 12;
-  freerange(end + rc_offset, (void*)PHYSTOP);
+  kmem.ref_count = (uint8 *)end;
+  uint64 rc_bytes = ((PHYSTOP - PGROUNDUP((uint64)end)) >> 12) * sizeof(uint8);
+  kmem.page_start = (char *)(end + rc_bytes);
+  freerange(kmem.page_start, (void*)PHYSTOP);
 }
 
 void
@@ -52,15 +53,14 @@ kfree(void *pa)
 {
   struct run *r;
 
-  if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
+  if(((uint64)pa % PGSIZE) != 0 || (char*)pa < kmem.page_start || (uint64)pa >= PHYSTOP)
     panic("kfree");
 
   // Fill with junk to catch dangling refs.
   memset(pa, 1, PGSIZE);
-  
+  uint64 idx = ((uint64)pa - (uint64)kmem.page_start) >> 12;
   r = (struct run*)pa;
 
-  uint64 idx = ((uint64)pa - (uint64)end) >> 12;
   acquire(&kmem.lock);
   r->next = kmem.freelist;
   kmem.freelist = r;
@@ -80,7 +80,7 @@ kalloc(void)
   r = kmem.freelist;
   if(r) {
     kmem.freelist = r->next;
-    uint64 idx = ((uint64)r - (uint64)end) >> 12;
+    uint64 idx = ((uint64)r - (uint64)kmem.page_start) >> 12;
     kmem.ref_count[idx] = 1;
   }
   release(&kmem.lock);
@@ -90,26 +90,29 @@ kalloc(void)
   return (void*)r;
 }
 
-void
-kref(void* pa) {
+void kref(void *pa) {
+  if ((uint64)pa % PGSIZE != 0 || (char *) pa < kmem.page_start || (uint64)pa >= PHYSTOP) {
+    panic("kref");
+  }
   uint64 idx = ((uint64)pa - (uint64)end) >> 12;
-
   acquire(&kmem.lock);
   kmem.ref_count[idx]++;
   release(&kmem.lock);
 }
 
-void
-kderef(void* pa) {
+void kderef(void *pa) {
+  if ((uint64)pa % PGSIZE != 0 || (char *) pa < kmem.page_start || (uint64)pa >= PHYSTOP) {
+    panic("kderef");
+  }
   uint64 idx = ((uint64)pa - (uint64)end) >> 12;
-  char shall_free = 0;
-
+  int do_free = 0;
   acquire(&kmem.lock);
   kmem.ref_count[idx]--;
-  if(kmem.ref_count[idx] == 0)
-    shall_free = 1;
+  if(kmem.ref_count[idx] == 0) {
+    do_free = 1;
+  }
   release(&kmem.lock);
-
-  if(shall_free)
+  if(do_free) {
     kfree(pa);
+  }
 }

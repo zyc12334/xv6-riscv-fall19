@@ -76,10 +76,9 @@ usertrap(void)
       p->killed = 1;
       goto end;
     }
-    if((*pte | PTE_V) && (*pte | PTE_U) && (*pte | PTE_COW)) {
+    if(*pte | PTE_V && (*pte | PTE_U) && (*pte | PTE_COW)) {
       char *mem = kalloc();
       if(mem == 0) {
-        printf("usertrap(): no more physical page\n");
         p->killed = 1;
         goto end;
       }
@@ -87,17 +86,13 @@ usertrap(void)
       memmove(mem, (char *)pa, PGSIZE);
 
       uint flags = PTE_FLAGS(*pte);
-      flags &= ~PTE_COW;
       flags |= PTE_W;
+      flags &= ~PTE_COW;
       uvmunmap(p->pagetable, vpage_base,  PGSIZE, 0);
       kderef((void *)pa);
       if(mappages(p->pagetable, vpage_base, PGSIZE, (uint64)mem, flags) != 0) {
-        panic("usertrap(): cannot map page\n");
+        printf("usertrap(): cannot map page\n");
       }
-    } else {
-      printf("usertrap(): page not found\n");
-      p->killed = 1;
-      goto end;
     }
   } else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
