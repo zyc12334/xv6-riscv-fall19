@@ -113,7 +113,7 @@ uint64 sys_sigalarm(void) {
 
 uint64 sys_sigreturn(void){
   struct proc *p = myproc();
-  p->cb_ticks = p->cb_interval;
+  p->cb_ticks -= p->cb_interval;
   p->cb_running = 0;
   *p->tf = p->cb_snapshot;
   return 0;
